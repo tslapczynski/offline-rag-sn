@@ -129,9 +129,28 @@ MODEL_PATH = "gemma-4-26b-a4b-it-Q4_K_M.gguf"
 # Aktywuj środowisko (jeśli nie jest aktywne)
 .\myenv\Scripts\activate        # Windows
 source myenv/bin/activate       # Linux/macOS
+```
 
-# Uruchom aplikację
-python offline_rag_app.py
+### Wybór profilu sprzętowego
+
+Przy starcie aplikacja pyta o profil — wybierz odpowiedni dla swojego komputera:
+
+```
+📋 Wybierz profil sprzętowy:
+
+  [1] 💻 Słaby komputer (8 GB RAM)    — Llama 3.2 8B    (~5 GB model)
+  [2] 🖥️ Średni komputer (12-16 GB)  — Gemma 4 E4B     (~3 GB model)
+  [3] 🚀 Mocny komputer (16+ GB RAM)  — Gemma 4 26B MoE (~14 GB model) ⭐
+
+Wpisz numer (1/2/3):
+```
+
+Możesz też podać profil jako argument — pomija menu:
+
+```bash
+python offline_rag_app.py --profil slaby    # 8 GB RAM  → Llama 3.2 8B
+python offline_rag_app.py --profil sredni   # 12 GB RAM → Gemma 4 E4B
+python offline_rag_app.py --profil mocny    # 16+ GB    → Gemma 4 26B MoE ⭐
 ```
 
 Otwórz przeglądarkę: **http://localhost:7860**
@@ -139,15 +158,16 @@ Otwórz przeglądarkę: **http://localhost:7860**
 ### Co dzieje się przy pierwszym uruchomieniu?
 
 ```
-[1] Ładowanie dokumentów...     ← wczytuje JSONL (~kilka sekund)
+[1] Ładowanie dokumentów...     ← wczytuje JSONL (kilka sekund)
 [2] Tworzenie chunków...        ← dzieli tekst na fragmenty
 [3] Embeddingi i FAISS...       ← BUDUJE INDEKS (może trwać 5-20 min!)
-    Indeks zapisany w 'faiss_index'
+    Indeks zapisany w 'faiss_index_slaby'   ← osobny per profil!
 [4] Ładowanie modelu LLM...     ← ładuje model GGUF
 ✅ System gotowy!
 ```
 
-> 💡 **Przy każdym kolejnym uruchomieniu** indeks FAISS jest wczytywany z dysku — startuje w kilka sekund!
+> 💡 **Każdy profil ma własny indeks FAISS** — możesz przełączać się między profilami bez przebudowy.  
+> Każde kolejne uruchomienie tego samego profilu startuje błyskawicznie!
 
 ---
 

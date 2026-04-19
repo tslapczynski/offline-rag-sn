@@ -1,8 +1,10 @@
 # offline_rag_app.py — Zaktualizowana wersja 2025/2026
-# Zmiany: nowe importy LangChain, persystencja FAISS, ładowanie JSONL, invoke() zamiast run()
+# Zmiany: nowe importy LangChain, persystencja FAISS, ładowanie JSONL,
+#         invoke() zamiast run(), wybór profilu sprzętowego (--profil)
 
 import os
 import json
+import argparse
 import fitz        # PyMuPDF
 import docx
 import gradio as gr
@@ -15,23 +17,85 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_classic.chains import RetrievalQA
 
-# ==================== USTAWIENIA ====================
-EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+# ============================================================
+#  PROFILE SPRZĘTOWE — wybierasz przy starcie
+# ============================================================
+PROFILES = {
+    "slaby": {
+        "opis":        "💻 Słaby komputer (8 GB RAM) — Llama 3.2 8B",
+        "model_path":  "Llama-3.2-8B-Instruct-Q4_K_M.gguf",
+        "model_url":   "https://huggingface.co/bartowski/Llama-3.2-8B-Instruct-GGUF/resolve/main/Llama-3.2-8B-Instruct-Q4_K_M.gguf",
+        "n_ctx":       4096,
+        "n_batch":     256,
+        "max_tokens":  512,
+        "max_orzeczenia": 3_000,
+        "max_qa":         1_000,
+    },
+    "sredni": {
+        "opis":        "🖥️ Średni komputer (12–16 GB RAM) — Gemma 4 E4B",
+        "model_path":  "gemma-4-e4b-it-Q4_K_M.gguf",
+        "model_url":   "https://huggingface.co/bartowski/gemma-4-e4b-it-GGUF/resolve/main/gemma-4-e4b-it-Q4_K_M.gguf",
+        "n_ctx":       8192,
+        "n_batch":     512,
+        "max_tokens":  1024,
+        "max_orzeczenia": 7_000,
+        "max_qa":         3_000,
+    },
+    "mocny": {
+        "opis":        "🚀 Mocny komputer (16+ GB RAM) — Gemma 4 26B MoE",
+        "model_path":  "gemma-4-26b-a4b-it-Q4_K_M.gguf",
+        "model_url":   "https://huggingface.co/bartowski/gemma-4-26b-a4b-it-GGUF/resolve/main/gemma-4-26b-a4b-it-Q4_K_M.gguf",
+        "n_ctx":       16384,
+        "n_batch":     512,
+        "max_tokens":  2048,
+        "max_orzeczenia": 10_000,
+        "max_qa":         5_000,
+    },
+}
 
-# === WYBÓR MODELU (zmień zależnie od dostępnego RAM) ===
-# 8 GB  RAM → Gemma-4-E4B-IT-Q4_K_M.gguf          (~3 GB)   ← szybki
-# 16 GB RAM → Gemma-4-26B-A4B-IT-Q4_K_M.gguf      (~14 GB)  ← zalecany ⭐
-# 32 GB RAM → Gemma-4-26B-A4B-IT-Q8_0.gguf         (~28 GB)  ← najlepsza jakość
-MODEL_PATH = "Gemma-4-E4B-IT-Q4_K_M.gguf"  # zmień na wariant pasujący do Twojego RAM
-DOCS_FOLDER     = "docs"
+# ==================== USTAWIENIA STAŁE ====================
+EMBEDDING_MODEL  = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+DOCS_FOLDER      = "docs"
 JSONL_ORZECZENIA = "orzeczenia_SN.jsonl"
 JSONL_QA         = "fine_tune_qa.jsonl"
-FAISS_INDEX_PATH = "faiss_index"             # folder do zapisu/odczytu indeksu
+FAISS_INDEX_PATH = "faiss_index"
+# ==========================================================
 
-# Limit rekordów JSONL (None = wszystkie; ustaw np. 5000 jeśli RAM jest ograniczony)
-MAX_ORZECZENIA   = 10_000
-MAX_QA           = 5_000
-# ====================================================
+
+def wybierz_profil() -> dict:
+    """Parsuje --profil z CLI lub pyta interaktywnie."""
+    parser = argparse.ArgumentParser(description="Lokalny Asystent Prawniczy RAG")
+    parser.add_argument(
+        "--profil",
+        choices=["slaby", "sredni", "mocny"],
+        help="Profil sprzętowy: slaby | sredni | mocny"
+    )
+    args, _ = parser.parse_known_args()
+
+    if args.profil:
+        return PROFILES[args.profil]
+
+    # Interaktywny wybór jeśli nie podano argumentu
+    print("\n" + "="*60)
+    print("  Lokalny Asystent RAG — Orzeczenia Sądu Najwyższego")
+    print("="*60)
+    print("\n📋 Wybierz profil sprzętowy:\n")
+    opcje = list(PROFILES.keys())
+    for i, klucz in enumerate(opcje, 1):
+        p = PROFILES[klucz]
+        print(f"  [{i}] {p['opis']}")
+        print(f"       Model: {p['model_path']}\n")
+
+    while True:
+        try:
+            wybor = input("Wpisz numer (1/2/3): ").strip()
+            if wybor in ["1", "2", "3"]:
+                klucz = opcje[int(wybor) - 1]
+                print(f"\n✅ Wybrany profil: {PROFILES[klucz]['opis']}\n")
+                return PROFILES[klucz]
+        except (ValueError, KeyboardInterrupt):
+            pass
+        print("  Proszę wpisać 1, 2 lub 3.")
 
 
 # --- Loader: pliki PDF / DOCX / TXT z folderu docs/ ---
@@ -90,7 +154,7 @@ def load_orzeczenia(jsonl_path: str, limit: int | None = None) -> list[Document]
     return documents
 
 
-# --- Loader: fine_tune_qa.jsonl (instruction + input jako kontekst) ---
+# --- Loader: fine_tune_qa.jsonl ---
 def load_qa_pairs(jsonl_path: str, limit: int | None = None) -> list[Document]:
     documents = []
     if not os.path.isfile(jsonl_path):
@@ -106,8 +170,6 @@ def load_qa_pairs(jsonl_path: str, limit: int | None = None) -> list[Document]:
                 instruction = record.get("instruction", "").strip()
                 context     = record.get("input", "").strip()
                 answer      = record.get("output", "").strip()
-
-                # Sklejamy pytanie + kontekst + odpowiedź jako jeden dokument
                 text = f"Pytanie: {instruction}\n\nKontekst:\n{context}\n\nOdpowiedź: {answer}"
                 if text.strip():
                     documents.append(Document(
@@ -121,17 +183,20 @@ def load_qa_pairs(jsonl_path: str, limit: int | None = None) -> list[Document]:
     return documents
 
 
-# ==================== INICJALIZACJA ====================
+# ==================== MAIN ====================
 
-print("\n" + "="*55)
-print("  Lokalny Asystent RAG — Orzeczenia Sądu Najwyższego")
-print("="*55)
+profil = wybierz_profil()
+MODEL_PATH = profil["model_path"]
 
-print("\n[1] Ładowanie dokumentów...")
+# Unikalny folder indeksu per profil (żeby nie nadpisywać)
+profil_nazwa = next(k for k, v in PROFILES.items() if v is profil)
+faiss_path   = f"{FAISS_INDEX_PATH}_{profil_nazwa}"
+
+print(f"\n[1] Ładowanie dokumentów (limit: {profil['max_orzeczenia']} orzeczeń)...")
 all_docs = []
 all_docs += load_folder_documents(DOCS_FOLDER)
-all_docs += load_orzeczenia(JSONL_ORZECZENIA, limit=MAX_ORZECZENIA)
-all_docs += load_qa_pairs(JSONL_QA, limit=MAX_QA)
+all_docs += load_orzeczenia(JSONL_ORZECZENIA,  limit=profil["max_orzeczenia"])
+all_docs += load_qa_pairs(JSONL_QA,            limit=profil["max_qa"])
 print(f"  Łącznie dokumentów: {len(all_docs)}")
 
 print("\n[2] Tworzenie chunków...")
@@ -146,41 +211,39 @@ print(f"  Łącznie chunków: {len(chunks)}")
 print("\n[3] Embeddingi i FAISS...")
 embedding = HuggingFaceEmbeddings(
     model_name=EMBEDDING_MODEL,
-    model_kwargs={"device": "cpu"}   # zmień na "cuda" jeśli masz GPU
+    model_kwargs={"device": "cpu"}   # zmień na "cuda" jeśli masz GPU NVIDIA
 )
 
-if os.path.isdir(FAISS_INDEX_PATH):
-    print(f"  Wczytywanie istniejącego indeksu z '{FAISS_INDEX_PATH}'...")
+if os.path.isdir(faiss_path):
+    print(f"  Wczytywanie istniejącego indeksu z '{faiss_path}'...")
     vectordb = FAISS.load_local(
-        FAISS_INDEX_PATH,
+        faiss_path,
         embedding,
         allow_dangerous_deserialization=True
     )
 else:
-    print("  Budowanie nowego indeksu (może chwilę potrwać)...")
+    print("  Budowanie nowego indeksu (może potrwać kilka minut)...")
     vectordb = FAISS.from_documents(chunks, embedding)
-    vectordb.save_local(FAISS_INDEX_PATH)
-    print(f"  Indeks zapisany w '{FAISS_INDEX_PATH}'")
+    vectordb.save_local(faiss_path)
+    print(f"  Indeks zapisany w '{faiss_path}'")
 
 retriever = vectordb.as_retriever(search_kwargs={"k": 5})
 
-print("\n[4] Ładowanie lokalnego modelu LLM...")
+print(f"\n[4] Ładowanie modelu: {MODEL_PATH}")
 if not os.path.isfile(MODEL_PATH):
     raise FileNotFoundError(
-        f"\nModel '{MODEL_PATH}' nie znaleziony!\n"
-        "Pobierz np. Llama-3.2-8B-Instruct.Q4_K_M.gguf z HuggingFace:\n"
-        "  https://huggingface.co/bartowski/Llama-3.2-8B-Instruct-GGUF\n"
-        "lub Zephyr:\n"
-        "  https://huggingface.co/TheBloke/zephyr-7B-beta-GGUF"
+        f"\n❌ Model '{MODEL_PATH}' nie znaleziony!\n"
+        f"Pobierz go z:\n  {profil['model_url']}\n"
+        f"i umieść w folderze projektu."
     )
 
 llm = LlamaCpp(
     model_path=MODEL_PATH,
-    temperature=0.3,        # niżej = bardziej deterministyczny (lepiej dla prawa)
-    max_tokens=1024,
+    temperature=0.3,
+    max_tokens=profil["max_tokens"],
     top_p=0.95,
-    n_ctx=4096,             # zwiększony kontekst
-    n_batch=512,
+    n_ctx=profil["n_ctx"],
+    n_batch=profil["n_batch"],
     verbose=False
 )
 
@@ -188,7 +251,7 @@ qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
     retriever=retriever,
-    return_source_documents=True  # zwracamy źródła
+    return_source_documents=True
 )
 
 print("\n✅ System gotowy!\n")
@@ -200,10 +263,9 @@ def ask_question(query: str) -> tuple[str, str]:
     if not query.strip():
         return "Proszę wpisać pytanie.", ""
 
-    result = qa_chain.invoke({"query": query})   # invoke() zamiast run()
+    result = qa_chain.invoke({"query": query})
     answer = result.get("result", "Brak odpowiedzi")
 
-    # Formatujemy listę źródeł
     source_docs = result.get("source_documents", [])
     sources = ""
     seen = set()
@@ -223,9 +285,9 @@ with gr.Blocks(
     title="RAG — Orzeczenia Sądu Najwyższego"
 ) as interface:
 
-    gr.Markdown("""
+    gr.Markdown(f"""
     # ⚖️ Lokalny Asystent Prawniczy RAG
-    **Baza wiedzy:** Orzeczenia Sądu Najwyższego (dane offline, bez internetu)
+    **Baza wiedzy:** Orzeczenia Sądu Najwyższego &nbsp;|&nbsp; **Profil:** {profil['opis']}
     """)
 
     with gr.Row():
