@@ -16,6 +16,7 @@ from langchain_community.llms import LlamaCpp
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_classic.chains import RetrievalQA
+from api_connectors import SAOSConnector, SejmELIConnector
 
 # ============================================================
 #  PROFILE SPRZĘTOWE — wybierasz przy starcie
@@ -257,37 +258,135 @@ qa_chain = RetrievalQA.from_chain_type(
 print("\n✅ System gotowy!\n")
 
 
-# ==================== INTERFEJS ====================
+# ==================== TRYBY WYSZUKIWANIA ====================
 
-def ask_question(query: str) -> tuple[str, str]:
+TRYB_LOKALNY  = "🔒 Lokalny  (FAISS — offline, szybki)"
+TRYB_ONLINE   = "🌐 Online   (SAOS + Sejm — aktualne dane)"
+TRYB_LACZONY  = "🔄 Łącznie  (lokalny + SAOS + Sejm) ⭐"
+
+saos_connector = SAOSConnector()
+sejm_connector = SejmELIConnector()
+
+
+def formatuj_zrodla(docs: list) -> str:
+    """Formatuje listę źródeł do wyświetlenia w UI."""
+    seen    = set()
+    sources = ""
+    for doc in docs:
+        src  = doc.metadata.get("source", "nieznane")
+        typ  = doc.metadata.get("type", "")
+        url  = doc.metadata.get("url", "")
+        key  = f"{src}|{typ}"
+        if key not in seen:
+            seen.add(key)
+            ikona = {"saos_live": "🌐", "sejm_eli": "📜"}.get(typ, "💾")
+            line  = f"{ikona} [{typ}] {src}"
+            if url:
+                line += f"\n   → {url}"
+            sources += line + "\n"
+    return sources.strip() or "Brak informacji o źródłach"
+
+
+def ask_question(query: str, tryb: str) -> tuple[str, str]:
     if not query.strip():
         return "Proszę wpisać pytanie.", ""
 
-    result = qa_chain.invoke({"query": query})
-    answer = result.get("result", "Brak odpowiedzi")
+    kontekst_docs = []
+    status_log    = []
 
-    source_docs = result.get("source_documents", [])
-    sources = ""
-    seen = set()
-    for doc in source_docs:
-        src = doc.metadata.get("source", "nieznane")
-        typ = doc.metadata.get("type", "")
-        key = f"{src}|{typ}"
-        if key not in seen:
-            seen.add(key)
-            sources += f"• [{typ}] {src}\n"
+    # --- Ścieżka LOKALNA (FAISS) ---
+    if tryb in (TRYB_LOKALNY, TRYB_LACZONY):
+        result     = qa_chain.invoke({"query": query})
+        faiss_docs = result.get("source_documents", [])
+        kontekst_docs.extend(faiss_docs)
+        status_log.append(f"💾 Lokalny FAISS: {len(faiss_docs)} chunków")
 
-    return answer, sources.strip() or "Brak informacji o źródłach"
+    # --- Ścieżka ONLINE (SAOS + Sejm ELI) ---
+    if tryb in (TRYB_ONLINE, TRYB_LACZONY):
+        print(f"\n  🌐 Szukam w SAOS: '{query[:60]}'...")
+        saos_docs = saos_connector.search(query, n=4)
+        kontekst_docs.extend(saos_docs)
+        status_log.append(f"🌐 SAOS: {len(saos_docs)} orzeczeń online")
 
+        print(f"  📜 Szukam w Sejm ELI: '{query[:60]}'...")
+        sejm_docs = sejm_connector.search(query, n=3)
+        kontekst_docs.extend(sejm_docs)
+        status_log.append(f"📜 Sejm ELI: {len(sejm_docs)} aktów prawnych")
+
+    if not kontekst_docs:
+        return "Brak wyników — sprawdź połączenie z internetem lub zmień tryb na Lokalny.", ""
+
+    # --- Dla trybu ONLINE nie używamy RetrievalQA — budujemy prompt ręcznie ---
+    if tryb == TRYB_ONLINE:
+        kontekst_text = "\n\n---\n\n".join(
+            doc.page_content for doc in kontekst_docs
+        )
+        prompt = (
+            f"Na podstawie poniższych dokumentów odpowiedz na pytanie.\n"
+            f"Pytanie: {query}\n\n"
+            f"Dokumenty:\n{kontekst_text[:profil['n_ctx'] - 500]}\n\n"
+            f"Odpowiedź:"
+        )
+        answer = llm.invoke(prompt)
+
+    elif tryb == TRYB_LACZONY:
+        # Łączony: FAISS dał już odpowiedź + dorzucamy kontekst z API
+        faiss_result = qa_chain.invoke({"query": query})
+        faiss_answer = faiss_result.get("result", "")
+
+        # Budujemy dodatkowy kontekst tylko z API
+        api_docs    = [d for d in kontekst_docs if d.metadata.get("type") in ("saos_live", "sejm_eli")]
+        api_context = "\n\n".join(d.page_content for d in api_docs)[:1500]
+
+        if api_docs:
+            prompt = (
+                f"Odpowiedź z lokalnej bazy orzeczeń:\n{faiss_answer}\n\n"
+                f"Uzupełnij odpowiedź o poniższe aktualne dane z SAOS/Sejm:\n{api_context}\n\n"
+                f"Pytanie: {query}\nZintegrowana odpowiedź:"
+            )
+            answer = llm.invoke(prompt)
+        else:
+            answer = faiss_answer
+
+    else:  # TRYB_LOKALNY
+        result = qa_chain.invoke({"query": query})
+        answer = result.get("result", "Brak odpowiedzi")
+
+    sources = formatuj_zrodla(kontekst_docs)
+    # Dopisujemy logi statusu na dole źródeł
+    sources += "\n\n" + " | ".join(status_log)
+
+    return answer, sources
+
+
+# ==================== INTERFEJS GRADIO ====================
 
 with gr.Blocks(
     theme=gr.themes.Soft(),
-    title="RAG — Orzeczenia Sądu Najwyższego"
+    title="RAG — Orzeczenia Sądu Najwyższego",
+    css="""
+        .tryb-radio label { font-size: 0.95em !important; }
+        footer { display: none !important; }
+    """
 ) as interface:
 
     gr.Markdown(f"""
     # ⚖️ Lokalny Asystent Prawniczy RAG
-    **Baza wiedzy:** Orzeczenia Sądu Najwyższego &nbsp;|&nbsp; **Profil:** {profil['opis']}
+    **Profil:** {profil['opis']} &nbsp;|&nbsp; Baza: Orzeczenia SN + Dziennik Ustaw
+    """)
+
+    with gr.Row():
+        tryb_radio = gr.Radio(
+            choices=[TRYB_LOKALNY, TRYB_ONLINE, TRYB_LACZONY],
+            value=TRYB_LOKALNY,
+            label="📡 Tryb wyszukiwania",
+            elem_classes="tryb-radio",
+        )
+
+    gr.Markdown("""
+    > **🔒 Lokalny** — szybki, działa bez netu, korzysta z pobranych orzeczeń SN  
+    > **🌐 Online** — pobiera aktualne orzeczenia z SAOS i przepisy z Dziennika Ustaw (~3-5 sek więcej)  
+    > **🔄 Łącznie** — łączy oba podejścia, najlepsza odpowiedź ⭐
     """)
 
     with gr.Row():
@@ -297,24 +396,24 @@ with gr.Blocks(
                 placeholder="np. Kiedy Sąd Najwyższy odmawia przyjęcia skargi kasacyjnej?",
                 lines=3
             )
-            submit_btn = gr.Button("🔍 Szukaj", variant="primary")
+            submit_btn = gr.Button("🔍 Szukaj", variant="primary", size="lg")
 
         with gr.Column(scale=2):
             source_box = gr.Textbox(
                 label="📂 Źródła",
-                lines=6,
+                lines=8,
                 interactive=False
             )
 
     answer_box = gr.Textbox(
         label="📋 Odpowiedź",
-        lines=10,
+        lines=12,
         interactive=False
     )
 
     submit_btn.click(
         fn=ask_question,
-        inputs=query_box,
+        inputs=[query_box, tryb_radio],
         outputs=[answer_box, source_box]
     )
 
@@ -323,6 +422,8 @@ with gr.Blocks(
             ["Kiedy Sąd Najwyższy odmawia przyjęcia skargi kasacyjnej do rozpoznania?"],
             ["Co to znaczy orzeczenie niezgodne z prawem w rozumieniu art. 4241 kpc?"],
             ["Jakie są przesłanki podziału majątku wspólnego małżonków?"],
+            ["Znajdź aktualny tekst Kodeksu postępowania cywilnego"],
+            ["Jakie przepisy regulują skargę kasacyjną?"],
         ],
         inputs=query_box
     )
