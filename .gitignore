@@ -1,0 +1,34 @@
+# ========== Środowisko Python ==========
+myenv/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ========== Duże pliki danych (ZA DUŻE na GitHub) ==========
+# Prześlij je osobno (np. pen drive, Google Drive)
+*.jsonl
+*.json.gz
+
+# ========== Model GGUF ==========
+*.gguf
+*.bin
+*.safetensors
+
+# ========== Indeks FAISS (generowany automatycznie) ==========
+faiss_index/
+
+# ========== Foldery dokumentów ==========
+docs/
+
+# ========== IDE / System ==========
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db
+
+# ========== Logi ==========
+*.log

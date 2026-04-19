@@ -1,0 +1,55 @@
+# ============================================================
+#  Offline RAG — orzeczenia Sądu Najwyższego
+#  requirements.txt
+#  UWAGA: torch instaluj OSOBNO poleceniem podanym w README!
+# ============================================================
+
+# --- LangChain ekosystem ---
+langchain==1.2.15
+langchain-classic==1.0.3
+langchain-community==0.4.1
+langchain-core==1.2.28
+langchain-huggingface==1.2.1
+langchain-text-splitters==1.1.1
+langgraph==1.1.6
+langgraph-checkpoint==4.0.1
+langgraph-prebuilt==1.0.9
+langgraph-sdk==0.3.13
+langsmith==0.7.30
+
+# --- Embeddingi ---
+sentence-transformers==5.4.0
+huggingface_hub==1.10.1
+tokenizers==0.22.2
+transformers==5.5.3
+safetensors==0.7.0
+
+# --- Vector store ---
+faiss-cpu==1.13.2
+
+# --- LLM (GGUF) ---
+# llama-cpp-python instaluj OSOBNO — patrz README
+# llama-cpp-python
+
+# --- Interfejs ---
+gradio==6.12.0
+gradio_client==2.4.1
+
+# --- Parsowanie dokumentów ---
+PyMuPDF==1.27.2.2
+python-docx==1.2.0
+
+# --- Zależności ogólne ---
+numpy==2.4.4
+scipy==1.17.1
+scikit-learn==1.8.0
+pandas==3.0.2
+pydantic==2.12.5
+pydantic-settings==2.13.1
+pydantic_core==2.41.5
+httpx==0.28.1
+requests==2.33.1
+tqdm==4.67.3
+PyYAML==6.0.3
+python-dotenv==1.2.2
+packaging==26.0
