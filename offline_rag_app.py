@@ -17,7 +17,12 @@ from langchain_classic.chains import RetrievalQA
 
 # ==================== USTAWIENIA ====================
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-MODEL_PATH      = "zephyr-7b.Q4_K_M.gguf"   # zamień na nowszy model, np. Llama-3.2-8B-Instruct.Q4_K_M.gguf
+
+# === WYBÓR MODELU (zmień zależnie od dostępnego RAM) ===
+# 8 GB  RAM → Gemma-4-E4B-IT-Q4_K_M.gguf          (~3 GB)   ← szybki
+# 16 GB RAM → Gemma-4-26B-A4B-IT-Q4_K_M.gguf      (~14 GB)  ← zalecany ⭐
+# 32 GB RAM → Gemma-4-26B-A4B-IT-Q8_0.gguf         (~28 GB)  ← najlepsza jakość
+MODEL_PATH = "Gemma-4-E4B-IT-Q4_K_M.gguf"  # zmień na wariant pasujący do Twojego RAM
 DOCS_FOLDER     = "docs"
 JSONL_ORZECZENIA = "orzeczenia_SN.jsonl"
 JSONL_QA         = "fine_tune_qa.jsonl"

@@ -100,18 +100,25 @@ Pliki danych są za duże na GitHub (>100 MB). Prześlij je osobno na docelowy k
 
 ## 🤖 Model LLM — plik GGUF
 
+> **Dlaczego Gemma 4?** Gemma 4 od Google (kwiecień 2026, Apache 2.0) ma natywne wsparcie 140+ języków — **polski jest priorytetowy**.  
+> Llama 3.2 oficjalnie wspiera tylko 8 języków (polskiego nie ma na liście).
+
 Pobierz jeden z modeli i umieść w głównym folderze projektu:
 
-| Model | Rozmiar | Jakość | Link |
+| Model | RAM | Jakość PL | Link |
 |---|---|---|---|
-| **Llama 3.2 8B** ⭐ *zalecany* | ~5 GB | ⭐⭐⭐⭐⭐ | [pobierz](https://huggingface.co/bartowski/Llama-3.2-8B-Instruct-GGUF/resolve/main/Llama-3.2-8B-Instruct-Q4_K_M.gguf) |
-| Mistral 7B Instruct v0.3 | ~4.1 GB | ⭐⭐⭐⭐ | [pobierz](https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf) |
-| Zephyr 7B | ~4.1 GB | ⭐⭐⭐ | [pobierz](https://huggingface.co/TheBloke/zephyr-7B-beta-GGUF/resolve/main/zephyr-7b-beta.Q4_K_M.gguf) |
+| **Gemma-4-E4B** ⭐ *8 GB RAM* | ~3 GB | ⭐⭐⭐⭐ | [pobierz](https://huggingface.co/bartowski/gemma-4-e4b-it-GGUF/resolve/main/gemma-4-e4b-it-Q4_K_M.gguf) |
+| **Gemma-4-26B MoE** 🏆 *16 GB RAM* | ~14 GB | ⭐⭐⭐⭐⭐ | [pobierz](https://huggingface.co/bartowski/gemma-4-26b-a4b-it-GGUF/resolve/main/gemma-4-26b-a4b-it-Q4_K_M.gguf) |
+| Llama 3.2 8B *(backup)* | ~5 GB | ⭐⭐⭐ | [pobierz](https://huggingface.co/bartowski/Llama-3.2-8B-Instruct-GGUF/resolve/main/Llama-3.2-8B-Instruct-Q4_K_M.gguf) |
 
-Następnie zaktualizuj ścieżkę modelu w `offline_rag_app.py`:
+Następnie zaktualizuj `MODEL_PATH` w `offline_rag_app.py` na nazwę pobranego pliku:
 
 ```python
-MODEL_PATH = "Llama-3.2-8B-Instruct-Q4_K_M.gguf"  # ← zmień tutaj
+# 8 GB RAM:
+MODEL_PATH = "gemma-4-e4b-it-Q4_K_M.gguf"
+
+# 16 GB RAM (zalecany):
+MODEL_PATH = "gemma-4-26b-a4b-it-Q4_K_M.gguf"
 ```
 
 ---
